@@ -1,13 +1,13 @@
 /**
  * adminDashboard.tsx — Modern redesign
- * Sections: Overview · Analytics · ML Insights · Products · Farmers · Customers
+ * Sections: Overview · Analytics · Business Insights · Products · Farmers · Customers
  */
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { useDispatch, useSelector } from "react-redux";
 import { HiOutlineMenu, HiX } from "react-icons/hi";
 import {
-  HiOutlineHome, HiOutlineChartBar, HiOutlineSparkles, HiOutlineSquares2X2,
+  HiOutlineHome, HiOutlineChartBar, HiOutlineSquares2X2,
   HiOutlineUserGroup, HiOutlineUsers, HiOutlineShoppingBag, HiOutlineShieldCheck, HiOutlineGlobeAlt,
   HiOutlineArrowRightOnRectangle,
 } from "react-icons/hi2";
@@ -22,11 +22,11 @@ import { logout as logoutAction } from "../../utils/userSlice";
 import { setCart } from "../../utils/cartSlice";
 import type { RootState } from "../../utils/store";
 import AdminAnalytics from "./AdminAnalytics";
-import MLInsights from "./MLInsights";
+import BusinessInsights from "./BusinessInsights";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ProductStatus = "pending" | "approved" | "rejected";
-type SectionKey    = "dashboard" | "analytics" | "ml" | "products" | "farmers" | "customers";
+type SectionKey    = "dashboard" | "analytics" | "businessInsights" | "products" | "farmers" | "customers";
 type Activity = {
   title: string;
   time?: string;
@@ -43,7 +43,7 @@ const PRODUCT_TABS = [
 const SECTIONS: { key: SectionKey; label: string; icon: any }[] = [
   { key: "dashboard",  label: "Overview",    icon: HiOutlineHome         },
   { key: "analytics",  label: "Analytics",   icon: HiOutlineChartBar     },
-  { key: "ml",         label: "ML Insights", icon: HiOutlineSparkles     },
+  { key: "businessInsights", label: "Business Insights", icon: HiOutlineChartBar },
   { key: "products",   label: "Products",    icon: HiOutlineSquares2X2   },
   { key: "farmers",    label: "Farmers",     icon: HiOutlineUserGroup    },
   { key: "customers",  label: "Customers",   icon: HiOutlineUsers        },
@@ -634,7 +634,7 @@ function OverviewBanner() {
 const SECTION_META: Record<SectionKey, { title: string; desc: string }> = {
   dashboard:  { title: "Overview",       desc: "Product listing counts and quick access to approval queues." },
   analytics:  { title: "Analytics",      desc: "Platform-wide revenue, orders, user growth, and product trends." },
-  ml:         { title: "ML Insights",    desc: "AI-powered churn prediction, customer segmentation, and recommendations." },
+  businessInsights: { title: "Business Insights", desc: "Rule-based marketplace insights for FarmConnect administrators." },
   products:   { title: "Product Listings", desc: "Review farmer-submitted listings and record your approval decision." },
   farmers:    { title: "Farmers",        desc: "Review farmer registrations and manage platform access." },
   customers:  { title: "Customers",      desc: "All registered customers on the marketplace." },
@@ -725,7 +725,7 @@ export default function AdminDashboard() {
 
         {section === "dashboard"  && <DashboardPanel onOpenTab={openProductTab} onOpenSection={changeSection} />}
         {section === "analytics"  && <AdminAnalytics />}
-        {section === "ml"         && <MLInsights />}
+        {section === "businessInsights" && <BusinessInsights />}
         {section === "products"   && <ProductsPanel tab={productTab} setTab={setProductTab} />}
         {section === "farmers"    && <FarmersPanel />}
         {section === "customers"  && <CustomersPanel />}

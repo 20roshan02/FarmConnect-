@@ -109,3 +109,65 @@ export const approveFarmer = (id: string): Promise<AxiosResponse> =>
 
 export const rejectFarmer = (id: string): Promise<AxiosResponse> =>
   adminApi.put(`/farmers/${id}/reject`);
+
+/* =========================
+   Business Insights API
+========================= */
+
+export interface SalesRankingItem {
+  rank: number;
+  productId: string;
+  title: string;
+  category: string;
+  totalQty: number;
+  totalRevenue: number;
+  totalBuyers: number;
+}
+
+export interface BusinessChurnCustomer {
+  userId: string;
+  name: string;
+  email: string;
+  lastPaidPurchase: string | null;
+  daysSinceLastPurchase: number | null;
+  totalOrders: number;
+  totalSpend: number;
+  status: "Active" | "At Risk" | "Churned" | "Never Purchased";
+}
+
+export interface BusinessChurnSummary {
+  Active: number;
+  "At Risk": number;
+  Churned: number;
+  "Never Purchased": number;
+}
+
+export interface BusinessRecommendation {
+  productId: string;
+  title: string;
+  category: string;
+  price: number;
+  stock: number;
+  unit: string;
+  images?: string;
+  purchaseCount: number;
+  totalBuyers: number;
+  reason: string;
+}
+
+export const fetchBusinessSalesRanking = (): Promise<AxiosResponse<{
+  success: boolean;
+  rankings: SalesRankingItem[];
+}>> => adminApi.get("/business-insights/sales-ranking");
+
+export const fetchBusinessChurn = (): Promise<AxiosResponse<{
+  success: boolean;
+  summary: BusinessChurnSummary;
+  customers: BusinessChurnCustomer[];
+}>> => adminApi.get("/business-insights/churn");
+
+export const fetchBusinessRecommendations = (): Promise<AxiosResponse<{
+  success: boolean;
+  recommendations: BusinessRecommendation[];
+  categories: { category: string; purchaseCount: number }[];
+}>> => adminApi.get("/business-insights/recommendations");

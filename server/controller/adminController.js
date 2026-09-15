@@ -182,6 +182,194 @@ async function getAllCustomers( req, res ) {
   }
 };
 
+async function getBusinessSalesRanking(req, res) {
+  try {
+    const rankings = await Order.aggregate([
+      { $match: { status: "paid" } },
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: "$items.product",
+          totalQty: { $sum: "$items.quantity" },
+          totalRevenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
+          buyers: { $addToSet: "$user" },
+        },
+      },
+      {
+        $lookup: {
+          from: "products",
+          localField: "_id",
+          foreignField: "_id",
+          as: "product",
+        },
+      },
+      { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          productId: "$_id",
+          title: { $ifNull: ["$product.title", "Unknown"] },
+          category: { $ifNull: ["$product.category", "other"] },
+          totalQty: 1,
+          totalRevenue: 1,
+          totalBuyers: { $size: "$buyers" },
+        },
+      },
+      { $sort: { totalQty: -1, totalRevenue: -1 } },
+      { $limit: 20 },
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      rankings: rankings.map((item, index) => ({ ...item, rank: index + 1 })),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Sales ranking failed" });
+  }
+}
+
+async function getBusinessChurn(req, res) {
+  try {
+    const [customers, paidOrderData] = await Promise.all([
+      User.find({ role: "customer" }).select("_id name email").lean(),
+      Order.aggregate([
+        { $match: { status: "paid" } },
+        {
+          $group: {
+            _id: "$user",
+            totalOrders: { $sum: 1 },
+            totalSpend: { $sum: "$amount" },
+            lastPaidPurchase: { $max: "$createdAt" },
+          },
+        },
+      ]),
+    ]);
+
+    const orderMap = new Map(paidOrderData.map((item) => [item._id.toString(), item]));
+    const now = Date.now();
+    const statusOrder = { Churned: 0, "At Risk": 1, Active: 2, "Never Purchased": 3 };
+    const customersWithStatus = customers.map((customer) => {
+      const orderData = orderMap.get(customer._id.toString());
+      const lastPaidPurchase = orderData?.lastPaidPurchase ?? null;
+      const daysSinceLastPurchase = lastPaidPurchase
+        ? Math.floor((now - new Date(lastPaidPurchase).getTime()) / 86_400_000)
+        : null;
+      const status = daysSinceLastPurchase === null
+        ? "Never Purchased"
+        : daysSinceLastPurchase <= 30
+        ? "Active"
+        : daysSinceLastPurchase <= 90
+        ? "At Risk"
+        : "Churned";
+
+      return {
+        userId: customer._id,
+        name: customer.name,
+        email: customer.email,
+        lastPaidPurchase,
+        daysSinceLastPurchase,
+        totalOrders: orderData?.totalOrders ?? 0,
+        totalSpend: orderData?.totalSpend ?? 0,
+        status,
+      };
+    }).sort((a, b) => {
+      const statusDifference = statusOrder[a.status] - statusOrder[b.status];
+      if (statusDifference !== 0) return statusDifference;
+      return (b.daysSinceLastPurchase ?? -1) - (a.daysSinceLastPurchase ?? -1);
+    });
+
+    const summary = customersWithStatus.reduce((counts, customer) => {
+      counts[customer.status] += 1;
+      return counts;
+    }, { Active: 0, "At Risk": 0, Churned: 0, "Never Purchased": 0 });
+
+    return res.status(200).json({ success: true, summary, customers: customersWithStatus });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Customer churn analysis failed" });
+  }
+}
+
+async function getBusinessRecommendations(req, res) {
+  try {
+    const [recommendations, categoryAgg] = await Promise.all([
+      Order.aggregate([
+        { $match: { status: "paid" } },
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: "$items.product",
+            purchaseCount: { $sum: "$items.quantity" },
+            buyers: { $addToSet: "$user" },
+          },
+        },
+        {
+          $lookup: {
+            from: "products",
+            localField: "_id",
+            foreignField: "_id",
+            as: "product",
+          },
+        },
+        { $unwind: { path: "$product", preserveNullAndEmptyArrays: false } },
+        { $match: { "product.status": "approved" } },
+        {
+          $project: {
+            _id: 0,
+            productId: "$_id",
+            title: "$product.title",
+            category: { $ifNull: ["$product.category", "other"] },
+            price: "$product.price",
+            stock: "$product.stock",
+            unit: "$product.unit",
+            images: "$product.images",
+            purchaseCount: 1,
+            totalBuyers: { $size: "$buyers" },
+          },
+        },
+        { $sort: { purchaseCount: -1, totalBuyers: -1 } },
+        { $limit: 16 },
+      ]),
+      Order.aggregate([
+        { $match: { status: "paid" } },
+        { $unwind: "$items" },
+        {
+          $lookup: {
+            from: "products",
+            localField: "items.product",
+            foreignField: "_id",
+            as: "product",
+          },
+        },
+        { $unwind: "$product" },
+        {
+          $group: {
+            _id: { $ifNull: ["$product.category", "other"] },
+            purchaseCount: { $sum: "$items.quantity" },
+          },
+        },
+        { $sort: { purchaseCount: -1 } },
+      ]),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      recommendations: recommendations.map((item) => ({
+        ...item,
+        reason: "Popular product based on total quantity sold.",
+      })),
+      categories: categoryAgg.map((item) => ({
+        category: item._id,
+        purchaseCount: item.purchaseCount,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Product recommendations failed" });
+  }
+}
+
 async function getAdminAnalytics(req, res) {
   try {
     const [pending, approved, rejected] = await Promise.all([
@@ -425,6 +613,9 @@ module.exports = {
     getAllFarmers,
     getAllCustomers,
     getAdminAnalytics,
+    getBusinessSalesRanking,
+    getBusinessChurn,
+    getBusinessRecommendations,
     getFarmerAnalytics,
     getFarmersByStatus,
     approveFarmer,
