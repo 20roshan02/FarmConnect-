@@ -8,15 +8,16 @@ import { useDispatch, useSelector } from "react-redux";
 import { HiOutlineMenu, HiX } from "react-icons/hi";
 import {
   HiOutlineHome, HiOutlineChartBar, HiOutlineSparkles, HiOutlineSquares2X2,
-  HiOutlineUserGroup, HiOutlineUsers, HiOutlineShieldCheck, HiOutlineGlobeAlt,
+  HiOutlineUserGroup, HiOutlineUsers, HiOutlineShoppingBag, HiOutlineShieldCheck, HiOutlineGlobeAlt,
   HiOutlineArrowRightOnRectangle,
 } from "react-icons/hi2";
 import {
   fetchPendingProducts, fetchApprovedProducts, fetchRejectedProducts,
   approveProduct, rejectProduct, fetchCustomers,
-  fetchFarmersByStatus, approveFarmer, rejectFarmer,
+  fetchFarmers, fetchFarmersByStatus, approveFarmer, rejectFarmer,
   type Product, type User, type FarmerUser, type FarmerApprovalStatus,
 } from "../../services/adminApi";
+import { adminApi } from "../../services/adminApi";
 import { logout as logoutAction } from "../../utils/userSlice";
 import { setCart } from "../../utils/cartSlice";
 import type { RootState } from "../../utils/store";
@@ -26,6 +27,12 @@ import MLInsights from "./MLInsights";
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ProductStatus = "pending" | "approved" | "rejected";
 type SectionKey    = "dashboard" | "analytics" | "ml" | "products" | "farmers" | "customers";
+type Activity = {
+  title: string;
+  time?: string;
+  date?: string;
+  icon: any;
+};
 
 const PRODUCT_TABS = [
   { key: "pending"  as ProductStatus, label: "Pending",  fetcher: fetchPendingProducts  },
@@ -64,6 +71,20 @@ function errMsg(err: unknown): string {
   }
   if (err instanceof Error) return err.message;
   return "Request failed";
+}
+
+function relativeTime(date?: string) {
+  if (!date) return "Recent activity";
+  const elapsed = Math.max(0, Date.now() - new Date(date).getTime());
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -179,20 +200,76 @@ function AdminSidebar({
 }
 
 // ─── Dashboard overview ───────────────────────────────────────────────────────
-function DashboardPanel({ onOpenTab }: { onOpenTab: (tab: ProductStatus) => void }) {
-  const [counts, setCounts] = useState<Record<ProductStatus, number> | null>(null);
+function DashboardPanel({
+  onOpenTab,
+  onOpenSection,
+}: {
+  onOpenTab: (tab: ProductStatus) => void;
+  onOpenSection: (section: SectionKey) => void;
+}) {
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState<{
+    farmerCount: number;
+    customerCount: number;
+    totalOrders: number;
+    totalProducts: number;
+  } | null>(null);
+  const [statusCounts, setStatusCounts] = useState<Record<ProductStatus, number> | null>(null);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null);
-    Promise.all(PRODUCT_TABS.map(t => t.fetcher()))
-      .then(results => {
+    Promise.all([
+      adminApi.get("/analytics"),
+      ...PRODUCT_TABS.map(t => t.fetcher()),
+      fetchFarmers(),
+      fetchCustomers(),
+    ])
+      .then(([analytics, pendingResponse, approvedResponse, rejectedResponse, farmersResponse, customersResponse]) => {
         if (cancelled) return;
-        const next = {} as Record<ProductStatus, number>;
-        PRODUCT_TABS.forEach((t, i) => { next[t.key] = (results[i].data.products || []).length; });
-        setCounts(next);
+        type TimestampedRecord = { createdAt?: string; updatedAt?: string };
+        const pendingProducts = (pendingResponse.data as { products: Product[] }).products;
+        const approvedProducts = (approvedResponse.data as { products: Product[] }).products;
+        const rejectedProducts = (rejectedResponse.data as { products: Product[] }).products;
+        const farmers = (farmersResponse.data as { farmers?: (User & TimestampedRecord)[] }).farmers || [];
+        const customers = (customersResponse.data as { customers?: (User & TimestampedRecord)[] }).customers || [];
+        const counts = {} as Record<ProductStatus, number>;
+        counts.pending = pendingProducts.length;
+        counts.approved = approvedProducts.length;
+        counts.rejected = rejectedProducts.length;
+        setStatusCounts(counts);
+        setSummary({
+          farmerCount: analytics.data.summary.farmerCount,
+          customerCount: analytics.data.summary.customerCount,
+          totalOrders: analytics.data.summary.totalOrders,
+          totalProducts: analytics.data.productStatus.pending + analytics.data.productStatus.approved + analytics.data.productStatus.rejected,
+        });
+
+        const latest = <T extends TimestampedRecord>(items: T[]) =>
+          [...items].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
+        const latestFarmer = latest(farmers);
+        const latestCustomer = latest(customers);
+        const latestProduct = latest([
+          ...pendingProducts,
+          ...approvedProducts,
+          ...rejectedProducts,
+        ] as (Product & TimestampedRecord)[]);
+        const latestApproved = latest(approvedProducts as (Product & TimestampedRecord)[]);
+        const nextActivities: Activity[] = [
+          latestFarmer && { title: `Farmer registration: ${latestFarmer.name}`, date: latestFarmer.createdAt, icon: HiOutlineUserGroup },
+          latestProduct && { title: `Product listing: ${latestProduct.title}`, date: latestProduct.createdAt, icon: HiOutlineSquares2X2 },
+          latestApproved && { title: `Product approved: ${latestApproved.title}`, date: latestApproved.updatedAt || latestApproved.createdAt, icon: HiOutlineShieldCheck },
+          latestCustomer && { title: `Customer registration: ${latestCustomer.name}`, date: latestCustomer.createdAt, icon: HiOutlineUsers },
+          analytics.data.summary.totalOrders > 0 && { title: "Customer order activity", time: `${analytics.data.summary.totalOrders} paid orders`, icon: HiOutlineShoppingBag },
+        ].filter(Boolean) as Activity[];
+        setActivities(nextActivities.sort((a, b) => {
+          if (!a.date) return 1;
+          if (!b.date) return -1;
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        }).slice(0, 5));
       })
       .catch(err => { if (!cancelled) setError(errMsg(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -201,23 +278,123 @@ function DashboardPanel({ onOpenTab }: { onOpenTab: (tab: ProductStatus) => void
 
   if (loading) return <Spinner />;
   if (error)   return <Err msg={error} />;
-  if (!counts) return null;
+  if (!summary || !statusCounts) return null;
+
+  const cards = [
+    { label: "Total Farmers", count: summary.farmerCount, subtitle: "Registered farmers", icon: HiOutlineUserGroup, gradient: "from-emerald-700 to-green-500" },
+    { label: "Total Customers", count: summary.customerCount, subtitle: "Registered customers", icon: HiOutlineUsers, gradient: "from-teal-700 to-emerald-500" },
+    { label: "Total Products", count: summary.totalProducts, subtitle: "Across all statuses", icon: HiOutlineSquares2X2, gradient: "from-orange-700 to-amber-500" },
+    { label: "Total Orders", count: summary.totalOrders, subtitle: "Paid orders", icon: HiOutlineShoppingBag, gradient: "from-amber-700 to-orange-500" },
+  ];
+  const quickActions = [
+    { label: "Review Products", subtitle: "Approve or reject listings", section: "products" as SectionKey, icon: HiOutlineSquares2X2 },
+    { label: "Manage Farmers", subtitle: "Review farmer access", section: "farmers" as SectionKey, icon: HiOutlineUserGroup },
+    { label: "Manage Customers", subtitle: "View customer accounts", section: "customers" as SectionKey, icon: HiOutlineUsers },
+    { label: "View Analytics", subtitle: "Explore platform trends", section: "analytics" as SectionKey, icon: HiOutlineChartBar },
+  ];
+
+  const openQuickAction = (section: SectionKey) => {
+    navigate("/admin-dashboard");
+    onOpenSection(section);
+  };
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      {PRODUCT_TABS.map(t => {
-        const color = STATUS_COLORS[t.key];
-        return (
-          <button key={t.key} onClick={() => onOpenTab(t.key)}
-            className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md"
-            style={{ borderTopColor: color, borderTopWidth: 3 }}>
-            <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-5" style={{ backgroundColor: color }} />
-            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{t.label}</p>
-            <p className="mt-2 text-4xl font-bold" style={{ color }}>{counts[t.key]}</p>
-            <p className="mt-2 text-[12px] font-medium text-slate-400">View listings →</p>
-          </button>
-        );
-      })}
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map(({ label, count, subtitle, icon: Icon, gradient }) => (
+          <div key={label} className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${gradient} p-5 text-white shadow-sm`}>
+            <Icon className="absolute -right-3 -top-3 h-24 w-24 text-white/10" />
+            <div className="relative">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
+                <Icon size={21} />
+              </div>
+              <p className="mt-5 text-sm font-medium text-white/80">{label}</p>
+              <p className="mt-1 text-3xl font-bold tracking-tight">{count}</p>
+              <p className="mt-1 text-xs text-white/70">{subtitle}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <section>
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Product Approval Queue</h2>
+            <p className="mt-1 text-sm text-slate-500">Review product listings by their current status.</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {PRODUCT_TABS.map(tab => {
+            const color = STATUS_COLORS[tab.key];
+            return (
+              <div key={tab.key} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{tab.label}</p>
+                    <p className="mt-1 text-2xl font-bold" style={{ color }}>{statusCounts[tab.key]}</p>
+                  </div>
+                  <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{tab.label} product listings</p>
+                <button onClick={() => onOpenTab(tab.key)} className="mt-3 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-amber-400 hover:bg-amber-50 hover:text-slate-900">
+                  View Listings
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-5">
+          <h2 className="text-lg font-bold text-slate-900">Recent Activity</h2>
+          <p className="mt-1 text-sm text-slate-500">The latest activity across your marketplace.</p>
+        </div>
+        {activities.length === 0 ? (
+          <Empty msg="No recent activity available." />
+        ) : (
+          <div className="ml-3 border-l border-slate-200">
+            {activities.map((activity, index) => {
+              const Icon = activity.icon;
+              return (
+                <div key={`${activity.title}-${index}`} className="relative flex gap-4 pb-5 pl-6 last:pb-0">
+                  <div className="absolute -left-4 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white bg-amber-100 text-amber-700">
+                    <Icon size={14} />
+                  </div>
+                  <div className="min-w-0 pt-1">
+                    <p className="truncate text-sm font-semibold text-slate-800">{activity.title}</p>
+                    <p className="mt-1 text-xs text-slate-400">{activity.time || relativeTime(activity.date)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-4">
+          <h2 className="text-lg font-bold text-slate-900">Quick Actions</h2>
+          <p className="mt-1 text-sm text-slate-500">Jump to a common admin task.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {quickActions.map(({ label, subtitle, section, icon: Icon }) => (
+            <button
+              key={label}
+              onClick={() => openQuickAction(section)}
+              className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 transition group-hover:bg-amber-100">
+                <Icon size={20} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-800">{label}</span>
+                <span className="mt-0.5 block truncate text-xs text-slate-500">{subtitle}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -429,6 +606,31 @@ function CustomersPanel() {
 }
 
 // ─── Section header ───────────────────────────────────────────────────────────
+function OverviewBanner() {
+  const currentDate = new Date().toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-2xl bg-[#0c1a12] px-5 py-6 shadow-sm sm:px-7 sm:py-7">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-amber-300">{currentDate}</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Welcome back, Admin 👋</h1>
+          <p className="mt-2 text-sm text-slate-300">Here is what is happening across FarmConnect today.</p>
+        </div>
+        <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
+          <span className="h-2 w-2 rounded-full bg-emerald-400" />
+          System Online
+        </span>
+      </div>
+    </section>
+  );
+}
+
 const SECTION_META: Record<SectionKey, { title: string; desc: string }> = {
   dashboard:  { title: "Overview",       desc: "Product listing counts and quick access to approval queues." },
   analytics:  { title: "Analytics",      desc: "Platform-wide revenue, orders, user growth, and product trends." },
@@ -512,12 +714,16 @@ export default function AdminDashboard() {
       <main className="mt-14 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 md:mt-0">
 
         {/* Page header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">{meta.title}</h1>
-          <p className="mt-1 text-sm text-slate-500">{meta.desc}</p>
-        </div>
+        {section === "dashboard" ? (
+          <OverviewBanner />
+        ) : (
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-slate-900">{meta.title}</h1>
+            <p className="mt-1 text-sm text-slate-500">{meta.desc}</p>
+          </div>
+        )}
 
-        {section === "dashboard"  && <DashboardPanel onOpenTab={openProductTab} />}
+        {section === "dashboard"  && <DashboardPanel onOpenTab={openProductTab} onOpenSection={changeSection} />}
         {section === "analytics"  && <AdminAnalytics />}
         {section === "ml"         && <MLInsights />}
         {section === "products"   && <ProductsPanel tab={productTab} setTab={setProductTab} />}
