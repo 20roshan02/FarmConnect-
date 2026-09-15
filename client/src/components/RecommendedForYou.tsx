@@ -1,11 +1,11 @@
 /**
  * RecommendedForYou.tsx
- * Customer-facing Collaborative Filtering recommendation strip.
+ * Customer-facing rule-based recommendation strip.
  *
  * Features:
- *  - Personalised hybrid CF (user-based + item-based) when user has order history
- *  - Graceful fallback to platform popularity when cold-start
- *  - Category affinity badges showing WHY an item was recommended
+ *  - Rule-based recommendations when the user has order history
+ *  - Graceful fallback to platform popularity when there is no history
+ *  - Simple reason badges showing why an item was recommended
  *  - Horizontal scroll carousel with prev/next arrow buttons
  *  - Add-to-cart and Buy-now inline actions
  *  - Hidden entirely if user is not logged in or no recs available
@@ -31,13 +31,6 @@ import { CartContext } from "./context/CartContext";
 import type { RootState } from "../utils/store";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const METHOD_LABEL: Record<string, string> = {
-  hybrid_cf:          "Based on your purchase history",
-  collaborative_filtering: "Based on customers like you",
-  popularity_fallback: "Most popular on FarmConnect",
-  none:               "Popular right now",
-};
-
 const CAT_COLORS: Record<string, string> = {
   vegetables: "#16a34a",
   fruits:     "#d97706",
@@ -63,7 +56,7 @@ function SkeletonCard() {
 // ─── Individual product card ──────────────────────────────────────────────────
 interface ProductCardProps {
   rec: Recommendation;
-  categoryAffinity: Record<string, number>;
+  reasons: string[];
   onAddToCart: (rec: Recommendation) => Promise<void>;
   onBuyNow: (rec: Recommendation) => Promise<void>;
   isAdding: boolean;
@@ -71,12 +64,11 @@ interface ProductCardProps {
   onNavigate: (productId: string) => void;
 }
 
-function ProductCard({ rec, categoryAffinity, onAddToCart, onBuyNow, isAdding, isBuying, onNavigate }: ProductCardProps) {
+function ProductCard({ rec, reasons, onAddToCart, onBuyNow, isAdding, isBuying, onNavigate }: ProductCardProps) {
   const p = rec.product;
   if (!p) return null;
 
   const catColor   = CAT_COLORS[p.category] || "#6b7280";
-  const affinityPct = categoryAffinity[p.category];
   const isOutOfStock = p.stock === 0;
 
   return (
@@ -102,13 +94,6 @@ function ProductCard({ rec, categoryAffinity, onAddToCart, onBuyNow, isAdding, i
           style={{ backgroundColor: catColor + "dd" }}>
           {p.category}
         </span>
-
-        {/* CF source badge */}
-        {rec.source === "hybrid_cf" && affinityPct !== undefined && (
-          <span className="absolute top-2 right-2 rounded-full bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[9px] font-semibold text-white">
-            {Math.round(affinityPct * 100)}% match
-          </span>
-        )}
 
         {/* Stock overlay */}
         {isOutOfStock && (
@@ -142,6 +127,16 @@ function ProductCard({ rec, categoryAffinity, onAddToCart, onBuyNow, isAdding, i
             </span>
           )}
         </div>
+
+        {reasons.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {reasons.slice(0, 3).map((reason) => (
+              <span key={reason} className="rounded-full bg-green-50 px-1.5 py-0.5 text-[9px] font-semibold text-green-700">
+                {reason}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-1.5">
@@ -179,23 +174,22 @@ interface RecommendedForYouProps {
   topN?: number;
   /** Visual variant — "section" adds a white rounded container, "inline" is borderless */
   variant?: "section" | "inline";
-  /** Title override */
+  /** Kept for compatibility with existing callers. Titles follow the API state. */
   title?: string;
 }
+
+type CustomerRecommendation = Recommendation & { reasons: string[] };
 
 export default function RecommendedForYou({
   topN = 10,
   variant = "section",
-  title,
 }: RecommendedForYouProps) {
   const user     = useSelector((state: RootState) => state.user.user);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const cartCtx  = useContext(CartContext);
-  const [recs, setRecs]               = useState<Recommendation[]>([]);
-  const [method, setMethod]           = useState<string>("none");
-  const [isPersonalised, setPersonal] = useState(false);
-  const [affinity, setAffinity]       = useState<Record<string, number>>({});
+  const [recs, setRecs] = useState<CustomerRecommendation[]>([]);
+  const [hasPurchaseHistory, setHasPurchaseHistory] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [addingId, setAddingId]       = useState<string | null>(null);
   const [buyingId, setBuyingId]       = useState<string | null>(null);
@@ -206,14 +200,16 @@ export default function RecommendedForYou({
 
   // Fetch recs when user logs in
   useEffect(() => {
-    if (!user?.token) { setRecs([]); return; }
+    if (!user?.token) {
+      setRecs([]);
+      setHasPurchaseHistory(false);
+      return;
+    }
     setLoading(true);
     fetchMyRecommendations(topN)
       .then(res => {
         setRecs(res.data.recommendations ?? []);
-        setMethod(res.data.method ?? "none");
-        setPersonal(res.data.isPersonalised ?? false);
-        setAffinity(res.data.categoryAffinity ?? {});
+        setHasPurchaseHistory(res.data.hasPurchaseHistory === true);
       })
       .catch(() => {/* silently skip — don't break the page */})
       .finally(() => setLoading(false));
@@ -287,8 +283,6 @@ export default function RecommendedForYou({
   if (!user?.token) return null;
   if (!loading && recs.length === 0) return null;
 
-  const methodLabel = title ?? (isPersonalised ? METHOD_LABEL[method] : METHOD_LABEL.popularity_fallback);
-
   const container = variant === "section"
     ? "bg-white rounded-2xl border border-gray-100 shadow-sm p-5"
     : "py-4";
@@ -303,9 +297,11 @@ export default function RecommendedForYou({
           </div>
           <div>
             <h2 className="text-[15px] font-bold text-gray-900">
-              {isPersonalised ? "Recommended For You" : "Most Popular Right Now"}
+              {hasPurchaseHistory ? "Recommended for You" : "Popular Right Now"}
             </h2>
-            <p className="text-[11px] text-gray-400">{methodLabel}</p>
+            <p className="text-[11px] text-gray-400">
+              {hasPurchaseHistory ? "Based on your shopping preferences" : "Popular products on FarmConnect"}
+            </p>
           </div>
         </div>
 
@@ -332,22 +328,6 @@ export default function RecommendedForYou({
         </div>
       </div>
 
-      {/* CF explanation pill — only show for personalised */}
-      {isPersonalised && Object.keys(affinity).length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 self-center">Top interests:</span>
-          {Object.entries(affinity)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 4)
-            .map(([cat, pct]) => (
-              <span key={cat} className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize text-white"
-                style={{ backgroundColor: CAT_COLORS[cat] || "#6b7280" }}>
-                {cat} {Math.round(pct * 100)}%
-              </span>
-            ))}
-        </div>
-      )}
-
       {/* Carousel */}
       <div
         ref={scrollRef}
@@ -360,7 +340,7 @@ export default function RecommendedForYou({
               <ProductCard
                 key={rec.productId}
                 rec={rec}
-                categoryAffinity={affinity}
+                reasons={rec.reasons ?? []}
                 onAddToCart={handleAddToCart}
                 onBuyNow={handleBuyNow}
                 isAdding={addingId === rec.productId}

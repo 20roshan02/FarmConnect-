@@ -1,0 +1,493 @@
+==================================================
+FARMCONNECT - ALGORITHMS USED
+==================================================
+
+1. INTRODUCTION
+
+An algorithm is a clear sequence of steps used to solve a problem or process data.
+FarmConnect uses algorithms for data processing, product filtering, product sorting,
+sales ranking, customer classification, recommendation, cart calculation, validation,
+and business analytics.
+
+Some FarmConnect logic is rule-based or uses ordinary database processing. For example,
+the Business Insights page classifies customers using fixed day ranges. This is not
+machine learning because the rules are written in the program and are not learned from
+training data.
+
+The project also contains older custom JavaScript recommendation, segmentation, churn,
+and forecasting code for some customer and farmer features. Those calculations are
+separate from the current rule-based Admin Business Insights modules and should not be
+called trained machine-learning models.
+
+2. ADMIN SIDE ALGORITHMS
+
+2.1 SALES RANKING ALGORITHM
+
+Algorithm name: Paid Product Sales Ranking
+Type: Database aggregation plus sorting
+Location: server/controller/adminController.js, getBusinessSalesRanking()
+Admin endpoint: /api/v1/admin/business-insights/sales-ranking
+Frontend location: client/src/components/admin/BusinessInsights.tsx
+
+Purpose / use case:
+This algorithm shows the administrator which products perform best in the marketplace.
+Only successfully paid orders are included.
+
+Input data:
+- Orders whose status is "paid".
+- Product items inside each paid order.
+- Product ID, quantity, and price stored in each order item.
+- User ID of the buyer.
+- Product name and category from the Product collection.
+
+Processing steps:
+
+Paid Orders
+    ->
+Extract ordered products
+    ->
+Group order items by product
+    ->
+Calculate total quantity sold
+    ->
+Calculate total revenue using item price multiplied by quantity
+    ->
+Collect unique buyer IDs
+    ->
+Count the number of buyers
+    ->
+Sort by highest quantity sold
+    ->
+Use highest revenue as the tie-breaker
+    ->
+Assign a rank number
+
+The database aggregation uses $match, $unwind, $group, $lookup, $project, and $sort.
+The result is limited to the top 20 ranked products.
+
+Output:
+Each ranked product contains:
+- Rank.
+- Product ID.
+- Product name.
+- Product category.
+- Total quantity sold.
+- Total revenue.
+- Total number of buyers.
+
+Why it is useful:
+It helps administrators identify best-selling products, compare product performance,
+and understand which products generate the most marketplace activity.
+
+Simple example:
+If Tomatoes were sold 50 times with revenue of Rs 2,000 and Potatoes were sold 40 times
+with revenue of Rs 2,500, Tomatoes rank higher because quantity sold is the first rule.
+If two products both sold 50 units, the product with higher revenue ranks first.
+
+This is not machine learning. It is database aggregation and sorting.
+
+2.2 CUSTOMER CHURN CLASSIFICATION ALGORITHM
+
+Algorithm name: Rule-Based Customer Churn Classification
+Type: Rule-based classification
+Location: server/controller/adminController.js, getBusinessChurn()
+Admin endpoint: /api/v1/admin/business-insights/churn
+Frontend location: client/src/components/admin/BusinessInsights.tsx
+
+Purpose / use case:
+This algorithm groups customers according to their recent paid purchase activity. It
+helps an administrator understand which customers are active, may need attention, have
+stopped purchasing for a long period, or have never purchased.
+
+Input data:
+- All users whose role is "customer".
+- Paid orders only.
+- Customer name and email.
+- Order creation date.
+- Paid order count.
+- Paid order amount.
+
+Processing steps:
+1. Query all customer accounts.
+2. Group paid orders by customer.
+3. Count the customer's paid orders.
+4. Add the amounts of the customer's paid orders to calculate total spending.
+5. Find the latest paid order date.
+6. Calculate the number of days since that latest paid purchase.
+7. Apply the fixed classification rules.
+
+Rules:
+- No paid purchase -> Never Purchased
+- 0 to 30 days since the last paid purchase -> Active
+- 31 to 90 days since the last paid purchase -> At Risk
+- More than 90 days since the last paid purchase -> Churned
+
+Output:
+Each customer record contains:
+- Customer name.
+- Email.
+- Date of the latest paid purchase.
+- Days since the latest paid purchase.
+- Total paid orders.
+- Total spending.
+- Customer status.
+
+The page also displays summary counts for Active, At Risk, Churned, and Never Purchased
+customers.
+
+Why it is useful:
+The administrator can quickly see customer engagement using a transparent rule that is
+easy to understand and explain. The same result can be checked manually from order
+history.
+
+Simple example:
+If a customer last paid for an order 15 days ago, the result is Active. If another
+customer last paid 60 days ago, the result is At Risk. A customer with no paid order is
+Never Purchased.
+
+This is rule-based churn classification/analysis. It is not predictive machine
+learning, does not calculate probability, and does not use a trained model.
+
+2.3 PRODUCT RECOMMENDATION ALGORITHM - ADMIN SIDE
+
+Algorithm name: Popularity-Based Product Recommendation
+Type: Popularity counting and ranking
+Location: server/controller/adminController.js, getBusinessRecommendations()
+Admin endpoint: /api/v1/admin/business-insights/recommendations
+Frontend location: client/src/components/admin/BusinessInsights.tsx
+
+Purpose / use case:
+This algorithm displays products that are popular in the marketplace. It helps the
+administrator see which approved products and categories receive the most purchases.
+
+Input data:
+- Paid orders only.
+- Product IDs and quantities from order items.
+- Buyer IDs.
+- Product approval status.
+- Product name, category, price, stock, unit, and image.
+
+Processing steps:
+
+Paid Orders
+    ->
+Count product purchase quantities
+    ->
+Count unique buyers for every product
+    ->
+Join the results with product records
+    ->
+Keep approved products for displayed recommendations
+    ->
+Sort by purchase quantity
+    ->
+Use number of buyers as a secondary ordering value
+    ->
+Count purchase quantities by category
+    ->
+Display popular products and categories
+
+Output:
+Each recommendation card displays:
+- Product name.
+- Category.
+- Purchase count.
+- Number of buyers.
+- Product price, unit, stock, and image when available.
+- Reason: "Popular product based on total quantity sold."
+
+The category chart displays categories ordered by their total purchased quantity.
+
+Why it is useful:
+It gives administrators a simple view of marketplace demand and popular product
+categories. It can support inventory and business decisions.
+
+Simple example:
+If Carrots have 80 purchased units and 25 buyers, while Apples have 50 purchased units
+and 20 buyers, Carrots appear higher in the recommendation list.
+
+This is popularity-based recommendation, not machine learning. It does not calculate
+an ML score or use a trained recommendation model.
+
+3. ADMIN ANALYTICS DATA PROCESSING
+
+The existing Analytics page is separate from Business Insights. It is implemented in:
+- Frontend: client/src/components/admin/AdminAnalytics.tsx
+- Backend: server/controller/adminController.js, getAdminAnalytics()
+- Endpoint: /api/v1/admin/analytics
+
+The existing Analytics section must not be confused with the Business Insights modules.
+It uses database filtering, counting, grouping, joining, and sorting operations.
+
+3.1 Total revenue
+- Select orders whose status is "paid".
+- Add the order amount values.
+- Return the total paid revenue.
+
+3.2 Total paid orders
+- Select paid orders.
+- Count the matching orders.
+
+3.3 Total farmers and total customers
+- Count users where role is "farmer".
+- Count users where role is "customer".
+
+3.4 Product status counts
+- Count products with status "pending".
+- Count products with status "approved".
+- Count products with status "rejected".
+- Display the results in a product listing status chart.
+
+3.5 Products by category
+- Group products by category.
+- Count products in each category.
+- Sort categories by count.
+- Display the result in a bar chart.
+
+3.6 Monthly revenue and orders
+- Select paid orders from the last six months.
+- Group them by year and month.
+- Add revenue for each month.
+- Count paid orders for each month.
+- Display revenue and order count in the monthly chart.
+
+3.7 Monthly user registrations
+- Select users registered during the last six months.
+- Group users by year, month, and role.
+- Count farmers and customers separately.
+- Display the registration trends in a line chart.
+
+3.8 Top products by revenue
+- Select paid orders.
+- Unwind the order items.
+- Group items by product.
+- Calculate total quantity using item quantities.
+- Calculate total revenue using item price multiplied by quantity.
+- Sort by total revenue.
+- Limit the result to five products.
+- Join the product collection to display the product title.
+
+These are ordinary database aggregation and business data-processing operations. They
+are not machine-learning algorithms.
+
+4. CLIENT-SIDE ALGORITHMS / LOGIC
+
+4.1 Marketplace filtering
+Name: Marketplace Product Filtering
+Type: Client-side conditional filtering
+Location: client/src/components/MarketPlace.tsx
+Purpose: Show products matching the user's selected filters.
+Input:
+- Product list returned by the backend.
+- Selected category.
+- Selected location.
+- Maximum price.
+- Search term from the Redux search state.
+
+Process:
+1. Accept the loaded product list.
+2. Keep all products when category is "All"; otherwise keep the selected category.
+3. Keep all locations when location is "All"; otherwise keep the selected location.
+4. Keep products whose price is at or below the maximum price.
+5. If a search term exists, compare it with the lower-case product title.
+6. Keep the product only when all active conditions are true.
+
+Output: A filtered product list shown in the marketplace.
+
+4.2 Marketplace product search
+Name: Case-insensitive title search
+Type: String normalization and substring matching
+Location: client/src/components/Navbar/Navbar.tsx and
+client/src/components/MarketPlace.tsx
+Purpose: Find marketplace products by title.
+Input: Text typed into the search field and product titles.
+Process:
+1. Remove surrounding spaces from the search term.
+2. Convert the search term and product title to lower case.
+3. Check whether the title includes the search text.
+4. Keep matching products.
+Output: Matching product suggestions or marketplace products.
+
+4.3 Marketplace sorting
+Name: Product Sorting
+Type: Client-side comparison sorting
+Location: client/src/components/MarketPlace.tsx
+Purpose: Change the order in which products are displayed.
+Input: Filtered products and selected sort option.
+Implemented options:
+- Newest: products are already reversed after fetching, so the current order is kept.
+- Price: Low to High: compare price values in ascending order.
+- Price: High to Low: compare price values in descending order.
+- Name A-Z: compare product titles using localeCompare().
+Output: The same filtered products in the selected order.
+
+4.4 Cart quantity and line-total calculation
+Name: Cart Quantity and Line Total Calculation
+Type: Arithmetic calculation
+Location: client/src/page/cart.tsx and client/src/components/Hero/ProductDescription.tsx
+Purpose: Show item totals and control the quantity used for ordering.
+Input: Product price and quantity.
+Process:
+1. Use the selected quantity, with a default of one where needed.
+2. Calculate a line total as unit price multiplied by quantity.
+3. In the product details page, decrease quantity but never below one.
+4. Increase quantity but never above the available maximum stock.
+5. Display the calculated product total.
+
+The cart page receives the complete cart total from the backend CartContext. It also
+locally calculates each displayed line total and the total number of item units.
+Output: Quantity controls, line totals, item count, and displayed cart total.
+
+4.5 Checkout form validation
+Name: Delivery Address Validation
+Type: Rule-based input validation
+Location: client/src/components/CheckoutModal.tsx
+Purpose: Prevent checkout submission when required delivery data is invalid.
+Input: Full name, phone number, street, city, district, ZIP code, and notes.
+Rules:
+- Full name is required.
+- Phone number is required and must match the supported Nepali phone format.
+- Street, city, and district are required.
+- ZIP is optional, but if supplied it must contain exactly five digits.
+Process:
+1. Trim and inspect the input fields.
+2. Apply the required-field rules and regular expressions.
+3. Store validation messages for invalid fields.
+4. Move to the review step only when no errors exist.
+Output: Validation messages or permission to continue to order submission.
+
+4.6 Admin customer search
+Name: Admin Customer Search
+Type: Case-insensitive substring filtering
+Location: client/src/components/admin/adminDashboard.tsx
+Purpose: Find a customer by name or email in the admin customer list.
+Input: Customer list and search text.
+Process:
+1. Trim/check whether search text exists.
+2. Convert the search text, name, and email to lower case.
+3. Keep customers whose name or email includes the search text.
+Output: Filtered customer list.
+
+5. CUSTOMER-SIDE PRODUCT RECOMMENDATION
+
+Name: Customer Product Recommendation
+Type: Existing hybrid collaborative filtering with popularity fallback
+Main frontend location: client/src/components/RecommendedForYou.tsx
+API client: client/src/services/mlApi.ts
+Backend location: server/controller/mlController.js and server/ml/mlEngine.js
+Endpoint: /api/v1/ml/my-recommendations
+
+This customer-facing feature is separate from the new Admin Business Insights
+recommendation module. It should not be described as a simple rule-based Admin feature.
+The current implementation contains custom JavaScript recommendation calculations. It
+also has a popularity fallback for customers with no purchase history.
+
+Input data:
+- Paid orders.
+- Customer ID.
+- Product IDs in order items.
+- Purchased quantities.
+- Product categories.
+- Approved product details.
+
+Processing steps:
+1. Load paid orders and expand every order item into a user-product interaction.
+2. Convert each purchased quantity into a rating using log1p(quantity).
+3. Build user-to-product and product-to-user interaction maps.
+4. If the customer has history, calculate user-based recommendations using Pearson
+   similarity between customer purchase vectors.
+5. Calculate item-based recommendations using cosine similarity between product vectors.
+6. Combine user-based and item-based results using weights of 0.55 and 0.45.
+7. Apply a category-affinity boost based on the customer's purchased categories.
+8. If the customer has no history, use popularity fallback by total purchased quantity.
+9. Enrich recommendations with approved product records.
+10. Remove products that the current customer has already purchased.
+11. Display the remaining products in the recommendation carousel.
+
+Customer-facing output:
+- Recommended product cards.
+- Product image, name, category, price, unit, location, and stock status.
+- A purchase-history explanation for personalized results.
+- Category-affinity badges when available.
+- Add-to-cart and buy-now actions.
+
+Simple example:
+If a customer bought products that are commonly purchased by similar customers, the
+user-based method can suggest products those similar customers bought. If the customer
+has no paid purchase history, the system falls back to products with the highest total
+purchase quantity on the platform.
+
+Important distinction:
+The customer recommendation code is custom collaborative-filtering and popularity
+logic. It is not an externally trained model or a claim that FarmConnect has a trained
+AI recommendation system.
+
+6. ALGORITHM SUMMARY TABLE
+
+Algorithm | Location | Type | Main Purpose
+----------|----------|------|-------------
+Paid Product Sales Ranking | adminController.js | Aggregation + sorting | Rank products by paid sales quantity and revenue
+Rule-Based Customer Churn Classification | adminController.js | Rule-based classification | Classify customers by paid-purchase recency
+Admin Product Recommendations | adminController.js | Popularity-based recommendation | Display popular approved products and categories
+Admin Analytics Processing | adminController.js | Database aggregation | Calculate platform revenue, users, products, and trends
+Marketplace Filtering | MarketPlace.tsx | Conditional filtering | Filter products by category, location, price, and search
+Marketplace Search | Navbar.tsx / MarketPlace.tsx | String matching | Find products by title
+Marketplace Sorting | MarketPlace.tsx | Comparison sorting | Sort products by date, price, or name
+Cart Line Total | cart.tsx / ProductDescription.tsx | Arithmetic | Calculate product price multiplied by quantity
+Delivery Validation | CheckoutModal.tsx | Rule-based validation | Validate checkout address fields
+Admin Customer Search | adminDashboard.tsx | String filtering | Search customers by name or email
+Customer Recommendations | mlController.js / mlEngine.js | Collaborative filtering + popularity fallback | Recommend products using purchase history or popularity
+
+7. HOW TO EXPLAIN THE ALGORITHMS IN VIVA
+
+Sales Ranking:
+"I use paid orders only and aggregate the order items by product. I calculate total
+quantity sold, total revenue, and unique buyers, then sort products by quantity sold and
+use revenue as the tie-breaker. This gives the administrator a best-selling product
+ranking."
+
+Customer Churn:
+"I use a rule-based classification method based on purchase recency. I calculate how
+many days have passed since the customer's last paid purchase and classify the customer
+as Active, At Risk, Churned, or Never Purchased using fixed day ranges. This is business
+logic, not predictive machine learning."
+
+Admin Product Recommendation:
+"I use a popularity-based recommendation approach for the administrator. I analyze paid
+orders, count product quantities and buyers, keep approved products, and display the
+most popular products and categories."
+
+Admin Analytics:
+"The Analytics page uses database aggregation operations such as filtering, counting,
+grouping, joining, and sorting. It calculates revenue, paid orders, users, product
+statuses, monthly trends, and top products by revenue."
+
+Marketplace Filtering and Search:
+"The marketplace filters products by category, location, maximum price, and title
+search. Search is case-insensitive, so I convert both the search term and product title
+to lower case before checking whether the title contains the term."
+
+Marketplace Sorting:
+"After filtering, the marketplace sorts products according to the selected option. It
+can keep newest order, sort prices ascending or descending, or compare product names in
+alphabetical order."
+
+Cart Calculation:
+"For each cart item, I calculate the line total by multiplying unit price by quantity.
+The product page limits quantity between one and available stock, while the complete
+cart total is received from the backend cart data."
+
+Checkout Validation:
+"Before checkout review, the form checks required delivery fields and validates the
+Nepali phone number and optional five-digit ZIP code. If validation passes, the order
+request is submitted to the backend."
+
+Customer Recommendation:
+"The customer recommendation feature uses purchase interactions. For customers with
+history it combines user-based and item-based similarity calculations and applies
+category affinity. For customers without history it falls back to popular products by
+total purchase quantity."
+
+==================================================
+END OF DOCUMENT
+==================================================

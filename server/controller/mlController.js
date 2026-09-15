@@ -25,6 +25,7 @@ const {
   buildInteractionMatrix,
   hybridCFRecommend,
   popularityRecommend,
+  ruleBasedRecommend,
   forecastDemand,
   buildCategoryAffinity,
 } = require("../ml/mlEngine");
@@ -92,10 +93,10 @@ async function buildCustomerRFM() {
 }
 
 /** Fetches all paid user-product interactions, including category metadata. */
-async function buildInteractions() {
+async function buildInteractions(includeCatalog = false) {
   const [orders, products] = await Promise.all([
-    Order.find({ status: "paid" }).select("user items").lean(),
-    Product.find({}).select("_id category").lean(),
+    Order.find({ status: "paid" }).select("user items createdAt").lean(),
+    Product.find({}).select("_id title category price images location stock unit status").lean(),
   ]);
 
   const catMap = new Map(products.map((p) => [p._id.toString(), p.category]));
@@ -108,11 +109,12 @@ async function buildInteractions() {
         productId: item.product.toString(),
         quantity:  item.quantity,
         category:  catMap.get(item.product.toString()) || "other",
+        purchaseDate: order.createdAt,
       });
     });
   });
 
-  return interactions;
+  return includeCatalog ? { interactions, products } : interactions;
 }
 
 /** Enriches a list of { productId, score } with full product documents. */
@@ -518,38 +520,28 @@ async function getFarmerDemandForecasts(req, res) {
 
 // ── 8. My Recommendations — customer-facing endpoint ─────────────────────────
 // Called directly by the browser for the logged-in customer.
-// Uses hybrid CF if the user has history, popularity fallback otherwise.
+// Uses transparent purchase rules with a popularity fallback.
 // Returns enriched product cards ready to render in the UI.
 async function getMyRecommendations(req, res) {
   try {
     const userId = req.user?.id || req.user?._id;
     if (!userId) return res.status(401).json({ success: false, message: "Not authenticated." });
 
-    const topN         = Math.min(parseInt(req.query.topN, 10) || 8, 20);
-    const interactions = await buildInteractions();
+    const topN = Math.min(parseInt(req.query.topN, 10) || 8, 20);
+    const { interactions, products } = await buildInteractions(true);
+
+    const userIdString = userId.toString();
+    const hasPurchaseHistory = interactions.some((interaction) => interaction.userId === userIdString);
 
     if (interactions.length === 0) {
       return res.status(200).json({
-        success: true, recommendations: [], method: "none",
+        success: true, hasPurchaseHistory: false, recommendations: [],
         message: "No purchase data on the platform yet.",
       });
     }
 
-    const matrix = buildInteractionMatrix(interactions);
-    const uid    = userId.toString();
-    const hasHistory = matrix.userItem.has(uid);
-
-    let recs, method, categoryAffinity = {};
-
-    if (hasHistory) {
-      const result   = hybridCFRecommend(uid, matrix, topN, { neighborCount: 10 });
-      recs            = result.recommendations;
-      method          = result.method;
-      categoryAffinity = result.categoryAffinity;
-    } else {
-      recs   = popularityRecommend(interactions, topN);
-      method = "popularity_fallback";
-    }
+    const result = ruleBasedRecommend(userIdString, interactions, products, topN);
+    const recs = result.recommendations;
 
     const enriched = await enrichWithProducts(recs);
 
@@ -563,15 +555,13 @@ async function getMyRecommendations(req, res) {
 
     return res.status(200).json({
       success: true,
+      hasPurchaseHistory,
       recommendations: filtered.map(r => ({
         productId:   r.productId,
         score:       parseFloat((r.score ?? 0).toFixed(4)),
-        source:      r.source || method,
+        reasons:     r.reasons,
         product:     r.product,
       })),
-      method,
-      categoryAffinity,
-      isPersonalised: hasHistory,
     });
   } catch (err) {
     console.error("[ML] my-recommendations error:", err);

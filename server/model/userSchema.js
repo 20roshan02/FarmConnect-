@@ -16,6 +16,18 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
+    phone: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    address: {
+      street: { type: String, trim: true, default: "" },
+      city: { type: String, trim: true, default: "" },
+      district: { type: String, trim: true, default: "" },
+    },
+
     password: {
       type: String,
       required: true,

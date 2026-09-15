@@ -526,6 +526,108 @@ function popularityRecommend(interactions, topN = 10) {
     .slice(0, topN);
 }
 
+/**
+ * Deterministic customer recommendations based on purchase categories,
+ * platform popularity, and recent paid sales.
+ */
+function ruleBasedRecommend(targetUserId, interactions, products, topN = 10) {
+  const uid = targetUserId.toString();
+  const customerInteractions = interactions.filter((interaction) => interaction.userId === uid);
+  const hasPurchaseHistory = customerInteractions.length > 0;
+  const purchasedProductIds = new Set(customerInteractions.map((interaction) => interaction.productId));
+  const purchasedCategories = new Set(customerInteractions.map((interaction) => interaction.category));
+  const cutoff = Date.now() - 30 * 86_400_000;
+  const stats = new Map();
+
+  interactions.forEach((interaction) => {
+    const current = stats.get(interaction.productId) || { totalQty: 0, recent: false };
+    current.totalQty += interaction.quantity;
+    if (interaction.purchaseDate && new Date(interaction.purchaseDate).getTime() >= cutoff) {
+      current.recent = true;
+    }
+    stats.set(interaction.productId, current);
+  });
+
+  const popularProductIds = new Set(
+    [...stats.entries()]
+      .sort((a, b) => {
+        const quantityDifference = b[1].totalQty - a[1].totalQty;
+        if (quantityDifference !== 0) return quantityDifference;
+        const productA = products.find((product) => product._id.toString() === a[0]);
+        const productB = products.find((product) => product._id.toString() === b[0]);
+        return (productA?.title || "").localeCompare(productB?.title || "");
+      })
+      .slice(0, 10)
+      .map(([productId]) => productId),
+  );
+
+  const eligible = products
+    .filter((product) => product.status === "approved")
+    .filter((product) => !purchasedProductIds.has(product._id.toString()))
+    .map((product) => {
+      const productId = product._id.toString();
+      const productStats = stats.get(productId) || { totalQty: 0, recent: false };
+      const reasons = [];
+      let score = productStats.totalQty;
+
+      if (hasPurchaseHistory) {
+        score = 0;
+        if (purchasedCategories.has(product.category)) {
+          score += 3;
+          reasons.push("Category Match");
+        }
+        if (popularProductIds.has(productId)) {
+          score += 2;
+          reasons.push("Popular");
+        }
+        if (productStats.recent) {
+          score += 1;
+          reasons.push("Recent");
+        }
+      } else {
+        reasons.push("Popular");
+      }
+
+      return {
+        productId,
+        score,
+        reasons,
+        totalQty: productStats.totalQty,
+        inStock: product.stock > 0,
+        title: product.title || "",
+      };
+    });
+
+  const ranked = eligible.sort((a, b) => {
+    const scoreDifference = b.score - a.score;
+    if (scoreDifference !== 0) return scoreDifference;
+    const quantityDifference = b.totalQty - a.totalQty;
+    if (quantityDifference !== 0) return quantityDifference;
+    if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  });
+
+  const fallback = ranked
+    .filter((recommendation) => recommendation.totalQty > 0)
+    .sort((a, b) => {
+      const quantityDifference = b.totalQty - a.totalQty;
+      if (quantityDifference !== 0) return quantityDifference;
+      if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+      return a.title.localeCompare(b.title);
+    });
+
+  const selected = !hasPurchaseHistory
+    ? fallback
+    : ranked.every((recommendation) => recommendation.score === 0)
+    ? fallback
+    : ranked;
+
+  return {
+    hasPurchaseHistory,
+    recommendations: selected.slice(0, topN).map(({ totalQty, inStock, title, ...recommendation }) => recommendation),
+  };
+}
+
 // Keep old export alias
 function collaborativeFilteringRecommend(targetUserId, uiMatrix, topN = 10, neighborCount = 5) {
   const { matrix, userIds, productIds } = uiMatrix;
@@ -1067,6 +1169,7 @@ module.exports = {
   collaborativeFilteringRecommend, // backward compat
   hybridCFRecommend,
   popularityRecommend,
+  ruleBasedRecommend,
   buildCategoryAffinity,
 
   // Gradient Boosting

@@ -190,11 +190,17 @@ export interface RecommendationsResponse {
 
 export interface MyRecommendationsResponse {
   success: boolean;
-  recommendations: Recommendation[];
-  method: string;
-  categoryAffinity: Record<string, number>;
-  isPersonalised: boolean;
+  hasPurchaseHistory: boolean;
+  recommendations: CustomerRecommendation[];
   message?: string;
+  [key: string]: any;
+}
+
+export interface CustomerRecommendation {
+  productId: string;
+  score: number;
+  reasons: string[];
+  product: ProductSummary | null;
 }
 
 export const fetchMyRecommendations = (topN = 8): Promise<AxiosResponse<MyRecommendationsResponse>> =>

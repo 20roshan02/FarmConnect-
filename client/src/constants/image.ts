@@ -1,1 +1,1 @@
-export {default as Logo } from  "../assets/images/image.jpg"
+export {default as Logo } from  "../assets/images/FarmConnect_logo.png"

@@ -113,7 +113,16 @@ const CustomerProfile = () => {
       setSaving(true);
       const res = await axios.put(
         `${import.meta.env.VITE_API_URL}/user/profile`,
-        { name: form.name.trim(), email: form.email.trim() },
+        {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          address: {
+            street: form.street.trim(),
+            city: form.city.trim(),
+            district: form.district.trim(),
+          },
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const updated = res.data?.user ?? { name: form.name.trim(), email: form.email.trim() };

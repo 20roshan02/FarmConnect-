@@ -211,7 +211,7 @@ async function userSignIn(req, res) {
     email = email.trim().toLowerCase();
 
     const user = await Users.findOne({ email }).select(
-      "name email password role verify approvalStatus",
+      "name email phone address password role verify approvalStatus",
     );
 
     if (!user) {
@@ -272,6 +272,8 @@ async function userSignIn(req, res) {
           id: user._id,
           name: user.name,
           email: user.email,
+          phone: user.phone,
+          address: user.address,
           role: user.role,
           approvalStatus: user.approvalStatus,
           token: accessToken,
@@ -320,11 +322,12 @@ async function updateUserById(req, res) {
         .json({ success: false, message: "Not authenticated" });
     }
 
-    const { name, email } = req.body;
+    const { name, email, phone, address } = req.body;
+    const updates = { name, email, phone, address };
 
     const updatedUser = await Users.findByIdAndUpdate(
       userId,
-      { name, email },
+      updates,
       { new: true, runValidators: true },
     ).select("-password");
 

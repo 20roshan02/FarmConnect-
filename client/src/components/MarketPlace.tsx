@@ -281,60 +281,71 @@ const MarketPlace = () => {
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-100 sticky top-0 z-20">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Marketplace</h1>
             <p className="text-sm text-gray-400">
               {loading ? "Loading…" : `${filtered.length} product${filtered.length !== 1 ? "s" : ""} found`}
             </p>
           </div>
+        </div>
+      </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            {/* Sort */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortKey)}
-              className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-400 cursor-pointer"
-            >
-              <option value="newest">Newest</option>
-              <option value="price-asc">Price: Low → High</option>
-              <option value="price-desc">Price: High → Low</option>
-              <option value="name">Name A–Z</option>
-            </select>
+      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 pt-6">
+        <RecommendedForYou topN={10} variant="section" />
+      </div>
 
-            {/* View toggle */}
-            <div className="hidden sm:flex items-center bg-gray-100 rounded-xl p-1 gap-1">
-              <button
-                onClick={() => setViewMode("grid")}
-                className={`p-2 rounded-lg transition-colors ${viewMode === "grid" ? "bg-white text-green-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                aria-label="Grid view"
-              >
-                <MdGridView size={18} />
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={`p-2 rounded-lg transition-colors ${viewMode === "list" ? "bg-white text-green-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-                aria-label="List view"
-              >
-                <MdViewList size={18} />
-              </button>
-            </div>
+      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 pt-6">
+        <div className="border-t border-gray-200 pt-5">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500">All Products</h2>
+        </div>
+      </div>
 
-            {/* Mobile filter toggle */}
+      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 pt-4">
+        <div className="flex items-center justify-end gap-2">
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-400 cursor-pointer"
+          >
+            <option value="newest">Newest</option>
+            <option value="price-asc">Price: Low → High</option>
+            <option value="price-desc">Price: High → Low</option>
+            <option value="name">Name A–Z</option>
+          </select>
+
+          {/* View toggle */}
+          <div className="hidden sm:flex items-center bg-gray-100 rounded-xl p-1 gap-1">
             <button
-              onClick={() => setMobileFiltersOpen(true)}
-              className="md:hidden flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+              onClick={() => setViewMode("grid")}
+              className={`p-2 rounded-lg transition-colors ${viewMode === "grid" ? "bg-white text-green-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              aria-label="Grid view"
             >
-              <MdTune size={16} />
-              Filters
-              {activeFilterCount > 0 && (
-                <span className="bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
+              <MdGridView size={18} />
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-2 rounded-lg transition-colors ${viewMode === "list" ? "bg-white text-green-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              aria-label="List view"
+            >
+              <MdViewList size={18} />
             </button>
           </div>
+
+          {/* Mobile filter toggle */}
+          <button
+            onClick={() => setMobileFiltersOpen(true)}
+            className="md:hidden flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+          >
+            <MdTune size={16} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -594,11 +605,6 @@ const MarketPlace = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* ── Recommended For You ──────────────────────────────────────────── */}
-      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 pb-10">
-        <RecommendedForYou topN={10} variant="section" />
       </div>
 
       {/* ── Checkout modal ────────────────────────────────────────────────── */}

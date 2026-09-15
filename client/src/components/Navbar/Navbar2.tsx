@@ -23,18 +23,6 @@ const Navbar = () => {
         ))}
       </div>
 
-      <div className="flex items-center gap-6">
-        <span className="text-l font-medium text-gray-800">
-          Trending Products
-        </span>
-
-        <div className="bg-green-600 text-white px-4 py-2 rounded flex items-center gap-2 font-semibold">
-          Get 30% Discount Now
-          <span className="bg-white text-green-600 text-xs px-2 py-0.5 rounded-full">
-            Sale
-          </span>
-        </div>
-      </div>
     </nav>
   );
 };

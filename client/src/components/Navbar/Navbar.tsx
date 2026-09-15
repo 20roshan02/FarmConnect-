@@ -1,6 +1,6 @@
 import { FaCartShopping, FaUserPlus } from "react-icons/fa6";
 import { IoSearch } from "react-icons/io5";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Logo } from "../../constants/image";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
@@ -16,6 +16,7 @@ interface ProductSuggestion {
 
 const Navbar = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useDispatch();
 
   const user = useSelector((state: RootState) => state.user.user);
@@ -74,7 +75,14 @@ const Navbar = () => {
   const handleSuggestionClick = (title: string) => {
     dispatch(setSearchTerm(title));
     setShowSuggestions(false);
-    navigate("/market-place");
+    if (location.pathname !== "/") navigate("/");
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    setShowSuggestions(false);
+    if (location.pathname !== "/") navigate("/");
   };
 
   const goToDashboard = () => {
@@ -149,6 +157,7 @@ const Navbar = () => {
                 setShowSuggestions(true);
               }}
               onFocus={() => setShowSuggestions(true)}
+              onKeyDown={handleSearchKeyDown}
               placeholder="Search products..."
               className="flex-1 px-4 py-2 outline-none"
             />
