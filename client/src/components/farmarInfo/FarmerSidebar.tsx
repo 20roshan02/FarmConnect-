@@ -7,17 +7,16 @@ import { useNavigate, useLocation } from "react-router";
 import { useSelector } from "react-redux";
 import {
   HiOutlineHome, HiOutlineSquares2X2, HiOutlineShoppingBag,
-  HiOutlineCog6Tooth, HiOutlineChartBar, HiOutlineSparkles,
+  HiOutlineCog6Tooth, HiOutlineChartBar,
   HiOutlineGlobeAlt,
 } from "react-icons/hi2";
 import type { RootState } from "../../utils/store";
 
 const NAV = [
-  { label: "Dashboard", path: "/farmerDashboard",       icon: HiOutlineHome         },
+  { label: "Dashboard", path: "/farmer/dashboard",       icon: HiOutlineHome         },
   { label: "Products",  path: "/farmer/myProducts",     icon: HiOutlineSquares2X2   },
   { label: "Orders",    path: "/farmer/orders",         icon: HiOutlineShoppingBag  },
   { label: "Analytics", path: "/farmer/analytics",     icon: HiOutlineChartBar     },
-  { label: "ML Insights",path: "/farmer/ml",           icon: HiOutlineSparkles     },
   { label: "Settings",  path: "/farmer/farmerSetting",  icon: HiOutlineCog6Tooth    },
 ];
 

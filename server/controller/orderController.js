@@ -276,6 +276,101 @@ async function createCartOrder(req, res) {
 }
 
 // ===============================
+// RETRY PAYMENT FOR A PENDING ORDER
+// ===============================
+async function initiatePendingOrderPayment(req, res) {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Not authenticated" });
+    }
+
+    const order = await Order.findOne({
+      _id: req.params.orderId,
+      user: userId,
+      paymentStatus: "pending",
+      status: "pending",
+    });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Pending order not found" });
+    }
+
+    const khaltiService = getKhaltiService();
+    let payment = await Payment.findOne({ userId, orderId: order._id }).sort({ createdAt: -1 });
+    if (payment?.status === "paid") {
+      return res.status(400).json({ success: false, message: "Order has already been paid" });
+    }
+
+    if (!payment) {
+      payment = await Payment.create({
+        userId,
+        orderId: order._id,
+        amount: Math.round(order.totalAmount * 100),
+        paymentGateway: "khalti",
+        status: "pending",
+      });
+    } else {
+      payment.status = "pending";
+      payment.pidx = undefined;
+      await payment.save();
+    }
+
+    try {
+      const khaltiPayment = await khaltiService.initiatePayment({
+        amount: Math.round(order.totalAmount * 100),
+        purchaseOrderId: order._id.toString(),
+        purchaseOrderName: `FarmConnect Order ${order._id}`,
+        returnUrl: `${process.env.FRONTEND_URL}/payment/success`,
+        websiteUrl: process.env.FRONTEND_URL,
+      });
+
+      payment.pidx = khaltiPayment.pidx;
+      await payment.save();
+      return res.status(200).json({ success: true, paymentUrl: khaltiPayment.payment_url });
+    } catch (error) {
+      payment.status = "failed";
+      await payment.save();
+      throw error;
+    }
+  } catch (error) {
+    return errorHandler(res, error);
+  }
+}
+
+// ===============================
+// DELETE A CUSTOMER'S PENDING ORDER
+// ===============================
+async function deletePendingOrder(req, res) {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Not authenticated" });
+    }
+
+    const order = await Order.findOne({
+      _id: req.params.orderId,
+      user: userId,
+      paymentStatus: "pending",
+      status: "pending",
+    });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Only pending orders can be deleted" });
+    }
+
+    for (const item of order.items) {
+      await Product.updateOne({ _id: item.product }, { $inc: { stock: item.quantity } });
+    }
+
+    await Payment.deleteMany({ userId, orderId: order._id, status: "pending" });
+    await order.deleteOne();
+
+    return res.status(200).json({ success: true, message: "Pending order deleted" });
+  } catch (error) {
+    return errorHandler(res, error);
+  }
+}
+
+// ===============================
 // KHALTI PAYMENT VERIFICATION
 // ===============================
 async function verifyKhaltiPayment(req, res) {
@@ -494,10 +589,123 @@ async function getFarmerOrders(req, res) {
   }
 }
 
+// ===============================
+// FARMER BUSINESS ANALYTICS
+// ===============================
+async function getFarmerAnalytics(req, res) {
+  try {
+    const farmerId = req.user?.id || req.user?._id;
+    if (!farmerId) {
+      return res.status(401).json({ success: false, message: "Not authenticated" });
+    }
+
+    const products = await Product.find({ farmer: farmerId })
+      .select("_id title stock category price")
+      .lean();
+    const productIds = products.map((product) => product._id);
+    const productMap = new Map(products.map((product) => [product._id.toString(), product]));
+
+    const orders = productIds.length === 0
+      ? []
+      : await Order.find({ "items.product": { $in: productIds } })
+        .populate("user", "name")
+        .sort({ createdAt: -1 })
+        .lean();
+
+    const farmerItems = (order) => (order.items || []).filter((item) =>
+      productMap.has(item.product?.toString()),
+    );
+    const orderTotalForFarmer = (items) => items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0,
+    );
+
+    const paidOrders = orders.filter((order) => order.paymentStatus === "paid" || order.status === "paid");
+    const pendingOrders = orders.filter((order) => order.paymentStatus === "pending" || order.status === "pending");
+
+    const totalRevenue = paidOrders.reduce(
+      (sum, order) => sum + orderTotalForFarmer(farmerItems(order)),
+      0,
+    );
+
+    const productSales = new Map();
+    paidOrders.forEach((order) => {
+      farmerItems(order).forEach((item) => {
+        const productId = item.product.toString();
+        const current = productSales.get(productId) || { quantitySold: 0, revenue: 0 };
+        current.quantitySold += item.quantity;
+        current.revenue += item.price * item.quantity;
+        productSales.set(productId, current);
+      });
+    });
+
+    const topProducts = [...productSales.entries()]
+      .sort(([, left], [, right]) => right.revenue - left.revenue)
+      .slice(0, 5)
+      .map(([productId, sales]) => ({
+        product: productMap.get(productId)?.title || "Product unavailable",
+        quantitySold: sales.quantitySold,
+        revenue: sales.revenue,
+      }));
+
+    const categorySales = new Map();
+    paidOrders.forEach((order) => {
+      farmerItems(order).forEach((item) => {
+        const category = productMap.get(item.product.toString())?.category || "other";
+        categorySales.set(category, (categorySales.get(category) || 0) + item.quantity);
+      });
+    });
+
+    const monthlyRevenue = new Map();
+    paidOrders.forEach((order) => {
+      const month = new Date(order.createdAt).toISOString().slice(0, 7);
+      monthlyRevenue.set(month, (monthlyRevenue.get(month) || 0) + orderTotalForFarmer(farmerItems(order)));
+    });
+
+    const recentOrders = orders.slice(0, 5).map((order) => {
+      const items = farmerItems(order);
+      return {
+        _id: order._id,
+        customer: order.user?.name || "Customer",
+        product: items.map((item) => productMap.get(item.product.toString())?.title || "Product unavailable").join(", "),
+        quantity: items.reduce((sum, item) => sum + item.quantity, 0),
+        amount: orderTotalForFarmer(items),
+        paymentStatus: order.paymentStatus || order.status,
+        createdAt: order.createdAt,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        totalRevenue,
+        totalOrders: orders.length,
+        paidOrders: paidOrders.length,
+        pendingOrders: pendingOrders.length,
+      },
+      topProducts,
+      lowStockProducts: products
+        .filter((product) => product.stock < 10)
+        .map((product) => ({ title: product.title, stock: product.stock })),
+      categorySales: [...categorySales.entries()].map(([category, quantity]) => ({ category, quantity })),
+      monthlyRevenue: [...monthlyRevenue.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .slice(-12)
+        .map(([month, revenue]) => ({ month, revenue })),
+      recentOrders,
+    });
+  } catch (error) {
+    return errorHandler(res, error);
+  }
+}
+
 module.exports = {
   createOrder,
   createCartOrder,
+  initiatePendingOrderPayment,
+  deletePendingOrder,
   verifyKhaltiPayment,
   getMyOrders,
   getFarmerOrders,
+  getFarmerAnalytics,
 };

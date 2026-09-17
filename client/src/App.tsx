@@ -86,8 +86,8 @@ const App = () => {
       {isFarmer && (
         <Routes>
           <Route path="/farmerDashboard"      element={<FarmerDashboard />} />
+          <Route path="/farmer/dashboard"      element={<FarmerDashboard />} />
           <Route path="/farmer/analytics"     element={<FarmerDashboard />} />
-          <Route path="/farmer/ml"            element={<FarmerDashboard />} />
           <Route path="/farmer/myProducts"    element={<MyProducts />} />
           <Route path="/farmer/orders"        element={<OrderList />} />
           <Route path="/farmer/farmerSetting" element={<FarmerSetting />} />

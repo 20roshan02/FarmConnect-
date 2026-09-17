@@ -1,20 +1,19 @@
 /**
  * FarmerDashboard.tsx  — Modern redesign
- * Views: dashboard (stats + add-product + recent) · analytics · ML insights
+ * Views: dashboard (stats + add-product + recent) · analytics
  */
 import { useEffect, useState } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useSelector } from "react-redux";
 import { HiOutlineMenu, HiX } from "react-icons/hi";
 import {
   HiOutlineSquares2X2, HiOutlineCubeTransparent, HiOutlineBanknotes,
   HiOutlineTag, HiOutlinePhoto, HiOutlineMapPin, HiOutlinePlusCircle,
-  HiOutlineChartBar, HiOutlineSparkles,
+  HiOutlineChartBar,
 } from "react-icons/hi2";
 import FarmerAnalytics from "./FarmerAnalytics";
-import MLFarmerInsights from "./MLFarmerInsights";
 import FarmerSidebar from "./FarmerSidebar";
 import type { RootState } from "../../utils/store";
 
@@ -22,8 +21,6 @@ type Product = {
   _id: string; title: string; price: number; stock: number;
   category: string; location: string; description?: string; images?: string;
 };
-
-type ActiveView = "dashboard" | "analytics" | "ml";
 
 const CATEGORY_OPTIONS = [
   { value: "vegetables", label: "Vegetables" },
@@ -53,9 +50,9 @@ function StatCard({ label, value, icon: Icon, gradient }: { label:string; value:
 
 export default function FarmerDashboard() {
   const navigate    = useNavigate();
+  const currentLocation = useLocation();
   const user        = useSelector((state: RootState) => state.user.user);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
   const [products,   setProducts]   = useState<Product[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -111,17 +108,15 @@ export default function FarmerDashboard() {
   const categories = new Set(products.map(p => p.category)).size;
 
   const NAV_ITEMS = [
-    { label: "Dashboard",   view: "dashboard" as ActiveView, to: null },
-    { label: "Analytics",   view: "analytics" as ActiveView, to: null },
-    { label: "ML Insights", view: "ml"        as ActiveView, to: null },
-    { label: "Products",    view: null, to: "/farmer/myProducts" },
-    { label: "Orders",      view: null, to: "/farmer/orders"     },
-    { label: "Settings",    view: null, to: "/farmer/farmerSetting" },
+    { label: "Dashboard", to: "/farmer/dashboard" },
+    { label: "Analytics", to: "/farmer/analytics" },
+    { label: "Products", to: "/farmer/myProducts" },
+    { label: "Orders", to: "/farmer/orders" },
+    { label: "Settings", to: "/farmer/farmerSetting" },
   ];
 
-  const handleNav = (view: ActiveView | null, to: string | null) => {
-    if (view) setActiveView(view);
-    else if (to) navigate(to);
+  const handleNav = (to: string) => {
+    navigate(to);
     setMobileOpen(false);
   };
 
@@ -152,12 +147,11 @@ export default function FarmerDashboard() {
               </button>
             </div>
             <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-              {NAV_ITEMS.map(({ label, view, to }) => {
-                const active = view ? activeView === view : false;
+              {NAV_ITEMS.map(({ label, to }) => {
                 return (
-                  <button key={label} onClick={() => handleNav(view, to)}
+                  <button key={label} onClick={() => handleNav(to)}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all
-                      ${active ? "bg-emerald-500/20 text-emerald-300" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
+                      ${currentLocation.pathname === to ? "bg-emerald-500/20 text-emerald-300" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
                     {label}
                   </button>
                 );
@@ -193,44 +187,18 @@ export default function FarmerDashboard() {
           <div className="relative">
             <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-200/70">Farm Workspace</p>
             <h1 className="mt-1 text-2xl font-bold text-white">
-              {activeView === "analytics" ? "Analytics" : activeView === "ml" ? "ML Insights" : "Farmer Dashboard"}
+              Farmer Dashboard
             </h1>
             <p className="mt-1 text-sm text-emerald-100/70">
-              {activeView === "analytics"
-                ? "Charts and insights about your products, stock, and earnings."
-                : activeView === "ml"
-                ? "AI-powered demand forecasting and market signals."
-                : "Manage products, monitor stock, and grow your storefront."}
+              Manage products, monitor stock, and grow your storefront.
             </p>
-          </div>
-          {/* Tab pills */}
-          <div className="relative mt-4 flex flex-wrap gap-2">
-            {[
-              { key:"dashboard", label:"Overview" },
-              { key:"analytics", label:"Analytics" },
-              { key:"ml",        label:"ML Insights" },
-            ].map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveView(key as ActiveView)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  activeView === key
-                    ? "bg-white text-emerald-700 shadow-sm"
-                    : "bg-white/15 text-white hover:bg-white/25"
-                }`}>
-                {label}
-              </button>
-            ))}
           </div>
         </div>
 
-        {/* Analytics */}
-        {activeView === "analytics" && <FarmerAnalytics />}
-
-        {/* ML */}
-        {activeView === "ml" && <MLFarmerInsights />}
-
-        {/* Dashboard */}
-        {activeView === "dashboard" && (
-          <div className="space-y-6">
+        {currentLocation.pathname === "/farmer/analytics" ? (
+          <FarmerAnalytics />
+        ) : (
+        <div className="space-y-6">
             {/* Stats */}
             <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
               <StatCard label="Total Products" value={products.length}             icon={HiOutlineSquares2X2}     gradient="from-emerald-400 to-teal-500"   />
@@ -367,10 +335,9 @@ export default function FarmerDashboard() {
               {[
                 { label:"Manage Products", icon: HiOutlineSquares2X2, to: "/farmer/myProducts", color: "emerald" },
                 { label:"View Orders",     icon: HiOutlineChartBar,   to: "/farmer/orders",     color: "blue"    },
-                { label:"Analytics",       icon: HiOutlineSparkles,   view:"analytics" as ActiveView, color:"violet"  },
-              ].map(({ label, icon: Icon, to, view, color }) => (
+              ].map(({ label, icon: Icon, to, color }) => (
                 <button key={label}
-                  onClick={() => view ? setActiveView(view) : navigate(to!)}
+                  onClick={() => navigate(to!)}
                   className={`flex items-center gap-3 rounded-2xl border border-${color}-100 bg-${color}-50/50 px-5 py-4 text-left transition hover:bg-${color}-50 hover:shadow-sm`}>
                   <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-${color}-100`}>
                     <Icon size={18} className={`text-${color}-600`} />

@@ -26,6 +26,7 @@ type DeliveryAddress = {
 type Order = {
   _id: string;
   amount: number;
+  paymentStatus: "pending" | "paid" | "failed";
   status: "pending" | "paid" | "failed";
   items: OrderItem[];
   createdAt: string;
@@ -45,6 +46,9 @@ export default function MyOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
 
   useEffect(() => {
     if (!user?.token) {
@@ -64,6 +68,43 @@ export default function MyOrders() {
 
   const toggleExpand = (id: string) =>
     setExpandedId((prev) => (prev === id ? null : id));
+
+  const handlePay = async (order: Order) => {
+    if (!user?.token || payingId || deletingId) return;
+    setPayingId(order._id);
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/order/${order._id}/pay`,
+        {},
+        { headers: { Authorization: `Bearer ${user.token}` } },
+      );
+      if (!response.data?.paymentUrl) throw new Error("Payment URL not returned");
+      toast.success("Redirecting to Khalti...");
+      window.location.assign(response.data.paymentUrl);
+    } catch {
+      toast.error("Failed to initiate payment.");
+      setPayingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget || !user?.token) return;
+    const orderId = deleteTarget._id;
+    setDeletingId(orderId);
+    try {
+      await axios.delete(`${import.meta.env.VITE_API_URL}/order/${orderId}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      setOrders((currentOrders) => currentOrders.filter((order) => order._id !== orderId));
+      setExpandedId((currentId) => (currentId === orderId ? null : currentId));
+      setDeleteTarget(null);
+      toast.success("Order deleted successfully.");
+    } catch {
+      toast.error("Failed to delete order.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="flex max-h-163">
@@ -221,12 +262,57 @@ export default function MyOrders() {
                           <span>Order Total</span>
                           <span className="text-green-700">Rs {order.amount}</span>
                         </div>
+                        {order.paymentStatus === "pending" && (
+                          <div className="mt-4 flex flex-row justify-end gap-2">
+                            <button
+                              onClick={() => void handlePay(order)}
+                              disabled={payingId !== null || deletingId !== null}
+                              className="rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {payingId === order._id ? "Redirecting..." : "Proceed to Pay"}
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(order)}
+                              disabled={payingId !== null || deletingId !== null}
+                              className="rounded-xl border border-red-500 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {deletingId === order._id ? "Deleting..." : "Delete Order"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {deleteTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+              <h2 className="text-lg font-bold text-gray-800">Delete Pending Order?</h2>
+              <p className="mt-2 text-sm text-gray-500">
+                Are you sure you want to delete this pending order? This action cannot be undone.
+              </p>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deletingId !== null}
+                  className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleDelete()}
+                  disabled={deletingId !== null}
+                  className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {deletingId ? "Deleting..." : "Delete Order"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
